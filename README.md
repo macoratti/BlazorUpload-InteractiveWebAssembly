@@ -11,7 +11,6 @@ AddControllers() e MapControllers() ao Program.cs do servidor e então você pod
 Adicione AddControllers() e MapControllers() ao Program.cs do servidor e então você pode começar a adicionar os controladores necessários.
 
 builder.Services.AddControllers();
-
 var app = builder.Build();
    ...
 app.MapControllers();
