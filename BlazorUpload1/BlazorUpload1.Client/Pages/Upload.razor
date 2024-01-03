@@ -1,0 +1,140 @@
+﻿@page "/fileupload"
+@rendermode InteractiveWebAssembly
+
+<PageTitle>File Upload</PageTitle>
+
+<h1>WASM - Envio de Arquivos</h1>
+
+<p>
+    <label>
+        Envie até @numeroArquivosPermitidos arquivos :
+        <InputFile OnChange="@OnInputFileChange" multiple />
+    </label>
+</p>
+
+@if (arquivosEnviados.Count > 0)
+{
+    <div class="card">
+        <div class="card-body">
+            <ul>
+                @foreach (var file in arquivosEnviados)
+                {
+                    <li>
+                        Arquivo : @file.Name
+                        <br>
+                        @if (FileUpload(resultadoUpload, file.Name, Logger, out var result))
+                        {
+                            <span>
+                               Nome do Arquivo armazenado : @result.StoredFileName
+                            </span>
+                        }
+                        else
+                        {
+                            <span>
+                                Ocorreu um erro ao enviar o arquivo
+                                (Error: @result.ErrorCode).
+                            </span>
+                        }
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+}
+
+
+@code {
+    private List<File> arquivosEnviados = new();
+    private List<UploadResult> resultadoUpload = new();
+    private int numeroArquivosPermitidos = 3;
+    private bool renderizar;
+
+    protected override bool ShouldRender() => renderizar;
+
+    private async Task OnInputFileChange(InputFileChangeEventArgs e)
+    {
+        renderizar = false;
+        long tamanhoMaximoArquivo = 1024 * 1024;
+        var enviado = false;
+
+        var numeroArquivos = e.GetMultipleFiles();
+
+        using var content = new MultipartFormDataContent();
+
+        foreach (var arquivo in numeroArquivos)
+        {
+            if (resultadoUpload.SingleOrDefault(
+                f => f.FileName == arquivo.Name) is null)
+            {
+                try
+                {
+                    arquivosEnviados.Add(new() { Name = arquivo.Name });
+
+                    var conteudoArquivo =
+                        new StreamContent(arquivo.OpenReadStream(tamanhoMaximoArquivo));
+
+                    conteudoArquivo.Headers.ContentType =
+                        new MediaTypeHeaderValue(arquivo.ContentType);
+
+                    content.Add(
+                        content: conteudoArquivo,
+                        name: "\"arquivosEnviados\"",
+                        fileName: arquivo.Name);
+
+                    enviado = true;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogInformation(
+                        "{FileName} não enviado (Err: 6): {Message}",
+                        arquivo.Name, ex.Message);
+
+                    resultadoUpload.Add(
+                        new()
+                            {
+                                FileName = arquivo.Name,
+                                ErrorCode = 6,
+                                Uploaded = false
+                            });
+                }
+            }
+        }
+
+
+        if (enviado)
+        {
+            var response = await Http.PostAsync("FileUploadWasm", content);
+
+            var novoResultadoUploads = await response.Content
+                                                     .ReadFromJsonAsync<IList<UploadResult>>();
+
+            if (novoResultadoUploads is not null)
+            {
+                resultadoUpload = resultadoUpload.Concat(novoResultadoUploads).ToList();
+            }
+        }
+
+        renderizar = true;
+    }
+
+    private static bool FileUpload(IList<UploadResult> resultadoUploads,
+                                   string? nomeArquivo, 
+                                   ILogger<Upload> logger, 
+                                   out UploadResult resultado)
+    {
+        resultado = resultadoUploads.SingleOrDefault(f => f.FileName == nomeArquivo) ?? new();
+
+        if (!resultado.Uploaded)
+        {
+            logger.LogInformation("{FileName} não enviado (Err: 5)", nomeArquivo);
+            resultado.ErrorCode = 5;
+        }
+
+        return resultado.Uploaded;
+    }
+
+    private class File
+    {
+        public string? Name { get; set; }
+    }
+}
